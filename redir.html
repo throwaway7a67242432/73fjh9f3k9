@@ -4,216 +4,327 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
-  <title>Kiosk Containment Harness</title>
+  <title>Kiosk Escape Vector Detector</title>
   <style>
     :root { --bg:#0f1115; --fg:#e6e6e6; --muted:#9aa0a6; --line:#262a31; --accent:#5aa9ff; --ok:#3fb950; --warn:#d29922; --red:#f85149; }
     * { box-sizing: border-box; }
     body { margin:0; font:15px/1.5 system-ui,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--fg); }
-    .wrap { max-width:820px; margin:0 auto; padding:32px 20px 64px; }
+    .wrap { max-width:920px; margin:0 auto; padding:32px 20px 64px; }
     h1 { font-size:20px; margin:0 0 4px; }
     .subtitle { color:var(--muted); font-size:12px; margin-bottom:24px; }
     .note { background:#151922; border:1px solid var(--line); border-radius:8px; padding:12px 14px; color:var(--muted); font-size:13px; margin:16px 0 24px; }
-    h2 { font-size:14px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin:28px 0 10px; }
+    h2 { font-size:14px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin:0; }
 
-    /* Custom path input */
-    .add-row { display:flex; gap:8px; margin-bottom:16px; }
-    .add-row input { flex:1; background:#1b212c; color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:8px 12px; font:14px ui-monospace,Consolas,monospace; }
-    .add-row input::placeholder { color:#555; }
-    .add-row input:focus { outline:none; border-color:var(--accent); }
-    .add-row select { background:#1b212c; color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:8px 10px; font-size:13px; cursor:pointer; }
-    .add-row button { white-space:nowrap; }
+    .vector { border:1px solid var(--line); border-radius:8px; margin:14px 0; overflow:hidden; }
+    .vector-head { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:12px 14px; background:#151922; }
+    .vector-head .id { font:12px ui-monospace,Consolas,monospace; color:var(--accent); }
+    .vector-body { padding:12px 14px; font-size:13px; color:var(--muted); }
+    .vector-body p { margin:0 0 10px; }
+    .controls { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:8px; }
+    .verdict { display:flex; gap:6px; margin-left:auto; }
+    .listing { margin-top:10px; border:1px solid var(--line); border-radius:6px; max-height:180px; overflow:auto; font:12px ui-monospace,Consolas,monospace; }
+    .listing div { padding:3px 10px; border-top:1px solid var(--line); color:var(--fg); word-break:break-all; }
+    .listing div:first-child { border-top:0; }
 
-    /* Matrix */
-    ul.matrix { list-style:none; margin:0; padding:0; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
-    ul.matrix li { border-top:1px solid var(--line); }
-    ul.matrix li:first-child { border-top:0; }
-    ul.matrix .row { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:12px 14px; }
-    ul.matrix a { color:var(--accent); text-decoration:none; flex:1; display:flex; justify-content:space-between; align-items:center; gap:12px; }
-    ul.matrix a:hover { text-decoration:underline; }
-    ul.matrix .desc { color:var(--muted); font-size:12px; font-weight:400; }
-    ul.matrix code { font:12px ui-monospace,Consolas,monospace; word-break:break-all; }
-    ul.matrix .custom-tag { font-size:10px; background:var(--accent); color:var(--bg); padding:1px 6px; border-radius:3px; margin-left:6px; }
-    .remove-btn { background:none; border:none; color:var(--muted); cursor:pointer; font-size:16px; padding:2px 6px; border-radius:4px; }
-    .remove-btn:hover { color:var(--red); background:#1b212c; }
-
-    /* Log */
-    .log { margin-top:16px; border:1px solid var(--line); border-radius:8px; }
-    .log-head { display:flex; justify-content:space-between; align-items:center; padding:10px 14px; border-bottom:1px solid var(--line); }
-    .log-head h2 { margin:0; }
     button { background:#1b212c; color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:6px 12px; font-size:13px; cursor:pointer; }
     button:hover { border-color:var(--accent); }
+    button.run { border-color:var(--accent); }
+    button.ok:hover { border-color:var(--ok); color:var(--ok); }
+    button.bad:hover { border-color:var(--red); color:var(--red); }
+    button.meh:hover { border-color:var(--warn); color:var(--warn); }
+    a.protolink { color:var(--accent); text-decoration:none; border:1px solid var(--line); border-radius:6px; padding:6px 12px; font-size:13px; }
+    a.protolink:hover { border-color:var(--accent); }
+
+    .log { margin-top:24px; border:1px solid var(--line); border-radius:8px; }
+    .log-head { display:flex; justify-content:space-between; align-items:center; padding:10px 14px; border-bottom:1px solid var(--line); }
     .btn-group { display:flex; gap:6px; }
     table { width:100%; border-collapse:collapse; font:12px ui-monospace,Consolas,monospace; }
     th, td { text-align:left; padding:8px 14px; border-top:1px solid var(--line); vertical-align:top; }
     th { color:var(--muted); font-weight:600; }
+    td.r-allowed { color:var(--red); }   /* allowed = containment FAILED */
+    td.r-blocked { color:var(--ok); }    /* blocked = containment held  */
+    td.r-info { color:var(--muted); }
+    td.r-warn { color:var(--warn); }
     .empty { padding:16px 14px; color:var(--muted); font-size:13px; }
     footer { margin-top:32px; color:var(--muted); font-size:12px; }
+    code { font:12px ui-monospace,Consolas,monospace; color:var(--fg); word-break:break-all; }
   </style>
 </head>
 <body>
   <div class="wrap">
-    <h1>Kiosk Breakout</h1>
+    <h1>Kiosk Escape Vector Detector</h1>
+    <div class="subtitle">Authorized containment assessment only. Host on the assessment surface (e.g. GitHub Pages), open in the target kiosk browser, run each probe, record the verdict.</div>
 
-    <h2>Add custom target</h2>
-    <div class="add-row">
-      <select id="scheme">
-        <option value="file:///">file:///</option>
-        <option value="file://">file:// (UNC)</option>
-      </select>
-      <input type="text" id="custom-path" placeholder="e.g. D:\sensitive\data  or  SERVER\share\folder">
-      <button id="add-btn">Add</button>
+    <div class="note">
+      Each probe is benign: it triggers the <em>mechanism</em> (a small blob download, a file dialog, a directory-picker grant, a scoped Explorer handoff, a drop read) and logs what the browser allows.
+      Some outcomes resolve outside the page (Explorer windows, opening a downloaded file) — use the
+      <strong>Allowed / Blocked</strong> buttons to record what you observed. In the log, <span style="color:var(--red)">Allowed = containment FAILED</span>,
+      <span style="color:var(--ok)">Blocked = containment held</span>.
     </div>
 
-    <h2>Target matrix</h2>
-    <ul class="matrix" id="matrix"></ul>
+    <!-- ── Vector 1 ── -->
+    <div class="vector">
+      <div class="vector-head"><h2>1 &middot; Download &rarr; open file: origin / Show in folder</h2><span class="id">chain</span></div>
+      <div class="vector-body">
+        <p>Fires a client-side blob download of <code>kiosk-probe.html</code> (no server, no URL bar). The downloaded page itself links to <code>file:///C:/</code>.
+        If you can <strong>open</strong> it from the download shelf, it loads as a <code>file:</code> origin and its link will list the local drive; or use the shelf's <strong>Show in folder</strong> to reach Explorer.</p>
+        <div class="controls">
+          <button class="run" id="v1-run">Fire blob download</button>
+          <span class="verdict">
+            <button class="ok"  data-verdict="1">Allowed</button>
+            <button class="bad" data-verdict="1" data-blocked="1">Blocked</button>
+            <button class="meh" data-verdict="1" data-inconc="1">Inconclusive</button>
+          </span>
+        </div>
+      </div>
+    </div>
 
+    <!-- ── Vector 2 ── -->
+    <div class="vector">
+      <div class="vector-head"><h2>2 &middot; File picker dialog (Open dialog = Explorer)</h2><span class="id">input[type=file]</span></div>
+      <div class="vector-body">
+        <p>Opens the OS Open dialog — a full Explorer window. The folder variant (<code>webkitdirectory</code>) enumerates a chosen directory and renders a listing in-page (names only). If the dialog opens at all, the containment gap exists.</p>
+        <div class="controls">
+          <button class="run" id="v2-file">Open file dialog</button>
+          <button class="run" id="v2-dir">Open folder dialog (enumerate)</button>
+          <span class="verdict">
+            <button class="ok"  data-verdict="2">Allowed</button>
+            <button class="bad" data-verdict="2" data-blocked="1">Blocked</button>
+            <button class="meh" data-verdict="2" data-inconc="1">Inconclusive</button>
+          </span>
+        </div>
+        <input type="file" id="v2-file-input" style="display:none">
+        <input type="file" id="v2-dir-input" webkitdirectory style="display:none">
+        <div class="listing" id="v2-listing" style="display:none"></div>
+      </div>
+    </div>
+
+    <!-- ── Vector 3 ── -->
+    <div class="vector">
+      <div class="vector-head"><h2>3 &middot; File System Access API (read disk from JS)</h2><span class="id">showDirectoryPicker</span></div>
+      <div class="vector-body">
+        <p>Feature-detects and invokes <code>showDirectoryPicker()</code> / <code>showOpenFilePicker()</code>. On grant, enumerates entries and reads name+size only (no contents shown). Availability + a successful grant = the API is usable in this kiosk.</p>
+        <div class="controls">
+          <button class="run" id="v3-dir">showDirectoryPicker()</button>
+          <button class="run" id="v3-file">showOpenFilePicker()</button>
+          <span class="verdict">
+            <button class="ok"  data-verdict="3">Allowed</button>
+            <button class="bad" data-verdict="3" data-blocked="1">Blocked</button>
+            <button class="meh" data-verdict="3" data-inconc="1">Inconclusive</button>
+          </span>
+        </div>
+        <div class="listing" id="v3-listing" style="display:none"></div>
+      </div>
+    </div>
+
+    <!-- ── Vector 4 ── -->
+    <div class="vector">
+      <div class="vector-head"><h2>4 &middot; External protocol handoff to Explorer / Settings</h2><span class="id">search-ms:</span></div>
+      <div class="vector-body">
+        <p>Hands off to a native app via a registered protocol — no <code>file:</code> navigation needed. <code>search-ms:</code> opens Windows Explorer scoped to a path (a real directory listing outside the browser); <code>ms-settings:</code> is a harmless handoff confirmation. Watch for the "open this app?" prompt and whether Explorer/Settings actually launches.</p>
+        <div class="controls">
+          <a class="protolink" id="v4-searchms" href="search-ms:crumb=location:C%3A%5C">search-ms: &rarr; C:\</a>
+          <a class="protolink" id="v4-settings" href="ms-settings:">ms-settings: (benign handoff)</a>
+          <span class="verdict">
+            <button class="ok"  data-verdict="4">Allowed</button>
+            <button class="bad" data-verdict="4" data-blocked="1">Blocked</button>
+            <button class="meh" data-verdict="4" data-inconc="1">Inconclusive</button>
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Vector 5 ── -->
+    <div class="vector">
+      <div class="vector-head"><h2>5 &middot; Drag-and-drop file read</h2><span class="id">DataTransfer + FileReader</span></div>
+      <div class="vector-body">
+        <p>Drag a file from Explorer/desktop onto the zone below. The page reads name, size, and the first 16 bytes (logged as length only) to prove local read access. Requires the user to be able to reach a file manager to drag from.</p>
+        <div id="v5-drop" style="border:1px dashed var(--line); border-radius:6px; padding:24px; text-align:center; color:var(--muted);">Drop a file here</div>
+        <div class="controls" style="margin-top:8px;">
+          <span class="verdict">
+            <button class="ok"  data-verdict="5">Allowed</button>
+            <button class="bad" data-verdict="5" data-blocked="1">Blocked</button>
+            <button class="meh" data-verdict="5" data-inconc="1">Inconclusive</button>
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Log ── -->
     <div class="log">
       <div class="log-head">
-        <h2>Click log</h2>
+        <h2>Result log</h2>
         <div class="btn-group">
           <button id="export">Export CSV</button>
-          <button id="clear">Clear log</button>
+          <button id="clear">Clear</button>
         </div>
       </div>
       <table id="log-table">
-        <thead><tr><th style="width:210px">Timestamp (ISO)</th><th style="width:130px">Target</th><th>Href</th></tr></thead>
+        <thead><tr><th style="width:200px">Timestamp (ISO)</th><th style="width:70px">Vector</th><th style="width:110px">Result</th><th>Detail</th></tr></thead>
         <tbody></tbody>
       </table>
-      <div class="empty" id="empty">No clicks recorded yet.</div>
+      <div class="empty" id="empty">No results recorded yet.</div>
     </div>
 
     <footer>
-      Open this file directly in the kiosk browser (<code>file:///path/to/kiosk-local-harness.html</code>)
-      or serve it from a local HTTP server on the assessment laptop
-      (<code>python -m http.server 8000</code>). Do not deploy to a public host.
+      Detector for kiosk containment testing. Run only against systems you are authorized to assess.
+      Pairs with the click-matrix in <code>redir.html</code>.
     </footer>
   </div>
 
   <script>
-    (function () {
-      // ── Default targets ──
-      var defaults = [
-        { target: 'mapped-drive',  href: 'file:///Y:/cache',                       label: 'Mapped drive path',    desc: 'arbitrary path on a mapped network drive' },
-        { target: 'local-root',    href: 'file:///C:/',                            label: 'Local disk root',      desc: 'top of the local filesystem' },
-        { target: 'system32-dir',  href: 'file:///C:/Windows/System32/',           label: 'System32 directory',   desc: 'listing of a sensitive system folder' },
-        { target: 'unc-share',     href: 'file://SERVER/share/',                   label: 'UNC network share',    desc: 'replace SERVER/share with a real one' },
-        { target: 'cmd-binary',    href: 'file:///C:/Windows/System32/cmd.exe',    label: 'Command interpreter',  desc: 'whether a binary is offered/launched' }
-      ];
+  (function () {
+    var rows = [];
+    var tbody = document.querySelector('#log-table tbody');
+    var empty = document.getElementById('empty');
 
-      var targets = defaults.map(function (d) { return { target: d.target, href: d.href, label: d.label, desc: d.desc, custom: false }; });
-      var rows = [];
-      var matrix = document.getElementById('matrix');
-      var tbody = document.querySelector('#log-table tbody');
-      var empty = document.getElementById('empty');
-      var customCount = 0;
+    function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
-      // ── Render matrix ──
-      function renderMatrix() {
-        matrix.innerHTML = '';
-        targets.forEach(function (t, i) {
-          var li = document.createElement('li');
-          var inner = '<div class="row">';
-          inner += '<a data-idx="' + i + '" href="' + escHtml(t.href) + '">';
-          inner += '<span>' + escHtml(t.label);
-          if (t.custom) inner += '<span class="custom-tag">custom</span>';
-          inner += ' <span class="desc">' + escHtml(t.desc) + '</span></span>';
-          inner += '<code>' + escHtml(t.href) + '</code>';
-          inner += '</a>';
-          if (t.custom) inner += '<button class="remove-btn" data-rm="' + i + '" title="Remove">×</button>';
-          inner += '</div>';
-          li.innerHTML = inner;
-          matrix.appendChild(li);
-        });
-      }
+    // result: 'allowed' | 'blocked' | 'info' | 'warn'
+    function log(vector, result, detail){
+      rows.push({ ts:new Date().toISOString(), vector:vector, result:result, detail:detail });
+      var tr = document.createElement('tr');
+      tr.innerHTML = '<td>'+esc(rows[rows.length-1].ts)+'</td>'
+                   + '<td>'+esc(vector)+'</td>'
+                   + '<td class="r-'+esc(result)+'">'+esc(result.toUpperCase())+'</td>'
+                   + '<td>'+esc(detail)+'</td>';
+      tbody.appendChild(tr);
+      empty.style.display = 'none';
+    }
 
-      // ── Render log ──
-      function renderLog() {
-        tbody.innerHTML = '';
-        rows.forEach(function (r) {
-          var tr = document.createElement('tr');
-          tr.innerHTML = '<td>' + escHtml(r.ts) + '</td><td>' + escHtml(r.target) + '</td><td>' + escHtml(r.href) + '</td>';
-          tbody.appendChild(tr);
-        });
-        empty.style.display = rows.length ? 'none' : 'block';
-      }
+    function renderListing(el, items){
+      el.style.display = 'block';
+      el.innerHTML = items.slice(0,200).map(function(x){ return '<div>'+esc(x)+'</div>'; }).join('');
+      if (items.length > 200) el.innerHTML += '<div>… '+(items.length-200)+' more</div>';
+    }
 
-      function escHtml(s) {
-        return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-      }
+    // ── Operator verdict buttons ──
+    document.addEventListener('click', function(e){
+      var b = e.target.closest('[data-verdict]');
+      if (!b) return;
+      var v = b.getAttribute('data-verdict');
+      if (b.hasAttribute('data-blocked'))      log('V'+v, 'blocked', 'Operator marked BLOCKED (containment held)');
+      else if (b.hasAttribute('data-inconc'))  log('V'+v, 'warn',    'Operator marked INCONCLUSIVE — retest');
+      else                                     log('V'+v, 'allowed', 'Operator marked ALLOWED (containment FAILED)');
+    });
 
-      // ── Click logging ──
-      matrix.addEventListener('click', function (e) {
-        var a = e.target.closest('a[data-idx]');
-        if (!a) return;
-        var idx = parseInt(a.getAttribute('data-idx'), 10);
-        var t = targets[idx];
-        if (t) {
-          rows.push({ ts: new Date().toISOString(), target: t.target, href: t.href });
-          renderLog();
-        }
-      });
-
-      // ── Remove custom target ──
-      matrix.addEventListener('click', function (e) {
-        var btn = e.target.closest('.remove-btn[data-rm]');
-        if (!btn) return;
-        e.preventDefault();
-        var idx = parseInt(btn.getAttribute('data-rm'), 10);
-        targets.splice(idx, 1);
-        renderMatrix();
-      });
-
-      // ── Add custom target ──
-      document.getElementById('add-btn').addEventListener('click', addCustom);
-      document.getElementById('custom-path').addEventListener('keydown', function (e) {
-        if (e.key === 'Enter') addCustom();
-      });
-
-      function addCustom() {
-        var input = document.getElementById('custom-path');
-        var scheme = document.getElementById('scheme').value;
-        var raw = input.value.trim();
-        if (!raw) return;
-
-        // Normalise backslashes to forward slashes for file:// URLs
-        var path = raw.replace(/\\/g, '/');
-        var href = scheme + path;
-        customCount++;
-
-        targets.push({
-          target: 'custom-' + customCount,
-          href: href,
-          label: raw,
-          desc: 'custom target added during session',
-          custom: true
-        });
-
-        input.value = '';
-        renderMatrix();
-      }
-
-      // ── Export CSV ──
-      document.getElementById('export').addEventListener('click', function () {
-        if (!rows.length) return;
-        var csv = 'timestamp,target,href\n' + rows.map(function (r) {
-          return '"' + r.ts + '","' + r.target + '","' + r.href.replace(/"/g, '""') + '"';
-        }).join('\n');
-        var blob = new Blob([csv], { type: 'text/csv' });
+    // ── Vector 1: blob download chain ──
+    document.getElementById('v1-run').addEventListener('click', function(){
+      var probe = '<!DOCTYPE html><meta charset="utf-8"><title>kiosk-probe</title>'
+        + '<body style="font:15px system-ui;background:#0f1115;color:#e6e6e6;padding:24px">'
+        + '<h2>Downloaded probe — now on a file: origin</h2>'
+        + '<p>If this page opened as <code>file:///.../kiosk-probe.html</code>, the link below is a same-scheme (file:&rarr;file:) navigation and should list the drive:</p>'
+        + '<p><a style="color:#5aa9ff" href="file:///C:/">Open file:///C:/ (local disk root)</a></p>'
+        + '<p>Also try the download shelf\'s <b>Show in folder</b> to reach Explorer directly.</p>';
+      try {
+        var blob = new Blob([probe], { type:'text/html' });
         var url = URL.createObjectURL(blob);
         var a = document.createElement('a');
-        a.href = url; a.download = 'containment-check-log.csv'; a.click();
-        URL.revokeObjectURL(url);
-      });
+        a.href = url; a.download = 'kiosk-probe.html';
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
+        log('V1', 'info', 'Blob download of kiosk-probe.html triggered. Open it / Show in folder, then mark Allowed or Blocked.');
+      } catch (err) {
+        log('V1', 'blocked', 'Blob download threw: ' + err.name + ' — ' + err.message);
+      }
+    });
 
-      // ── Clear log ──
-      document.getElementById('clear').addEventListener('click', function () {
-        rows = []; renderLog();
-      });
+    // ── Vector 2: file & directory pickers ──
+    var v2file = document.getElementById('v2-file-input');
+    var v2dir  = document.getElementById('v2-dir-input');
+    var v2list = document.getElementById('v2-listing');
+    document.getElementById('v2-file').addEventListener('click', function(){
+      log('V2', 'info', 'Requesting Open dialog (input[type=file].click())…');
+      v2file.click();
+    });
+    document.getElementById('v2-dir').addEventListener('click', function(){
+      log('V2', 'info', 'Requesting folder dialog (webkitdirectory)…');
+      v2dir.click();
+    });
+    v2file.addEventListener('change', function(){
+      if (v2file.files.length) log('V2', 'allowed', 'Open dialog reachable — selected: ' + v2file.files[0].name + ' (' + v2file.files[0].size + ' bytes)');
+    });
+    v2dir.addEventListener('change', function(){
+      var f = Array.prototype.slice.call(v2dir.files);
+      if (!f.length) return;
+      log('V2', 'allowed', 'Directory enumerated: ' + f.length + ' entries via webkitdirectory');
+      renderListing(v2list, f.map(function(x){ return (x.webkitRelativePath || x.name) + '  (' + x.size + ' B)'; }));
+    });
 
-      // ── Init ──
-      renderMatrix();
-      renderLog();
-    })();
+    // ── Vector 3: File System Access API ──
+    document.getElementById('v3-dir').addEventListener('click', async function(){
+      if (typeof window.showDirectoryPicker !== 'function'){
+        log('V3', 'blocked', 'showDirectoryPicker unavailable (unsupported or policy-disabled)'); return;
+      }
+      try {
+        var handle = await window.showDirectoryPicker();
+        var names = [], n = 0;
+        for await (var entry of handle.values()){ names.push(entry.kind + ': ' + entry.name); if (++n >= 500) break; }
+        log('V3', 'allowed', 'Directory grant succeeded on "' + handle.name + '" — ' + n + ' entries enumerable');
+        renderListing(document.getElementById('v3-listing'), names);
+      } catch (err) {
+        if (err && err.name === 'AbortError') log('V3', 'warn', 'User cancelled the picker (inconclusive)');
+        else log('V3', 'blocked', 'Directory picker denied: ' + (err && err.name) + ' — ' + (err && err.message));
+      }
+    });
+    document.getElementById('v3-file').addEventListener('click', async function(){
+      if (typeof window.showOpenFilePicker !== 'function'){
+        log('V3', 'blocked', 'showOpenFilePicker unavailable (unsupported or policy-disabled)'); return;
+      }
+      try {
+        var arr = await window.showOpenFilePicker();
+        var file = await arr[0].getFile();
+        log('V3', 'allowed', 'File read granted: ' + file.name + ' (' + file.size + ' bytes) — content readable');
+      } catch (err) {
+        if (err && err.name === 'AbortError') log('V3', 'warn', 'User cancelled the picker (inconclusive)');
+        else log('V3', 'blocked', 'File picker denied: ' + (err && err.name) + ' — ' + (err && err.message));
+      }
+    });
+
+    // ── Vector 4: protocol handoff (record attempt; outcome is external) ──
+    document.getElementById('v4-searchms').addEventListener('click', function(){
+      log('V4', 'info', 'search-ms: handoff attempted (scope C:\\). Did Explorer open a listing? Mark Allowed/Blocked.');
+    });
+    document.getElementById('v4-settings').addEventListener('click', function(){
+      log('V4', 'info', 'ms-settings: handoff attempted. Did Settings open? Confirms external-protocol handoff works.');
+    });
+
+    // ── Vector 5: drag-and-drop read ──
+    var drop = document.getElementById('v5-drop');
+    ['dragenter','dragover'].forEach(function(ev){
+      drop.addEventListener(ev, function(e){ e.preventDefault(); drop.style.borderColor = 'var(--accent)'; });
+    });
+    ['dragleave','drop'].forEach(function(ev){
+      drop.addEventListener(ev, function(e){ e.preventDefault(); drop.style.borderColor = 'var(--line)'; });
+    });
+    drop.addEventListener('drop', function(e){
+      e.preventDefault();
+      var files = e.dataTransfer && e.dataTransfer.files;
+      if (!files || !files.length){ log('V5', 'warn', 'Drop had no files'); return; }
+      var f = files[0];
+      var reader = new FileReader();
+      reader.onload = function(){
+        log('V5', 'allowed', 'Read local file "' + f.name + '" (' + f.size + ' bytes); first ' + Math.min(16, reader.result.byteLength) + ' bytes accessible');
+      };
+      reader.onerror = function(){ log('V5', 'blocked', 'FileReader error on dropped file'); };
+      reader.readAsArrayBuffer(f.slice(0, 16));
+    });
+
+    // ── Export / clear ──
+    document.getElementById('export').addEventListener('click', function(){
+      if (!rows.length) return;
+      var csv = 'timestamp,vector,result,detail\n' + rows.map(function(r){
+        return '"'+r.ts+'","'+r.vector+'","'+r.result+'","'+String(r.detail).replace(/"/g,'""')+'"';
+      }).join('\n');
+      var blob = new Blob([csv], { type:'text/csv' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a'); a.href = url; a.download = 'kiosk-escape-results.csv'; a.click();
+      setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
+    });
+    document.getElementById('clear').addEventListener('click', function(){
+      rows = []; tbody.innerHTML = ''; empty.style.display = 'block';
+    });
+  })();
   </script>
 </body>
 </html>
