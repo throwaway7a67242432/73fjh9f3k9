@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Kiosk Containment Harness</title>
+  <style>
+    :root { --bg:#0f1115; --fg:#e6e6e6; --muted:#9aa0a6; --line:#262a31; --accent:#5aa9ff; --ok:#3fb950; --warn:#d29922; --red:#f85149; }
+    * { box-sizing: border-box; }
+    body { margin:0; font:15px/1.5 system-ui,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--fg); }
+    .wrap { max-width:820px; margin:0 auto; padding:32px 20px 64px; }
+    h1 { font-size:20px; margin:0 0 4px; }
+    .subtitle { color:var(--muted); font-size:12px; margin-bottom:24px; }
+    .note { background:#151922; border:1px solid var(--line); border-radius:8px; padding:12px 14px; color:var(--muted); font-size:13px; margin:16px 0 24px; }
+    h2 { font-size:14px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin:28px 0 10px; }
+
+    /* Custom path input */
+    .add-row { display:flex; gap:8px; margin-bottom:16px; }
+    .add-row input { flex:1; background:#1b212c; color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:8px 12px; font:14px ui-monospace,Consolas,monospace; }
+    .add-row input::placeholder { color:#555; }
+    .add-row input:focus { outline:none; border-color:var(--accent); }
+    .add-row select { background:#1b212c; color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:8px 10px; font-size:13px; cursor:pointer; }
+    .add-row button { white-space:nowrap; }
+
+    /* Matrix */
+    ul.matrix { list-style:none; margin:0; padding:0; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+    ul.matrix li { border-top:1px solid var(--line); }
+    ul.matrix li:first-child { border-top:0; }
+    ul.matrix .row { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:12px 14px; }
+    ul.matrix a { color:var(--accent); text-decoration:none; flex:1; display:flex; justify-content:space-between; align-items:center; gap:12px; }
+    ul.matrix a:hover { text-decoration:underline; }
+    ul.matrix .desc { color:var(--muted); font-size:12px; font-weight:400; }
+    ul.matrix code { font:12px ui-monospace,Consolas,monospace; word-break:break-all; }
+    ul.matrix .custom-tag { font-size:10px; background:var(--accent); color:var(--bg); padding:1px 6px; border-radius:3px; margin-left:6px; }
+    .remove-btn { background:none; border:none; color:var(--muted); cursor:pointer; font-size:16px; padding:2px 6px; border-radius:4px; }
+    .remove-btn:hover { color:var(--red); background:#1b212c; }
+
+    /* Log */
+    .log { margin-top:16px; border:1px solid var(--line); border-radius:8px; }
+    .log-head { display:flex; justify-content:space-between; align-items:center; padding:10px 14px; border-bottom:1px solid var(--line); }
+    .log-head h2 { margin:0; }
+    button { background:#1b212c; color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:6px 12px; font-size:13px; cursor:pointer; }
+    button:hover { border-color:var(--accent); }
+    .btn-group { display:flex; gap:6px; }
+    table { width:100%; border-collapse:collapse; font:12px ui-monospace,Consolas,monospace; }
+    th, td { text-align:left; padding:8px 14px; border-top:1px solid var(--line); vertical-align:top; }
+    th { color:var(--muted); font-weight:600; }
+    .empty { padding:16px 14px; color:var(--muted); font-size:13px; }
+    footer { margin-top:32px; color:var(--muted); font-size:12px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Kiosk Breakout</h1>
+
+    <h2>Add custom target</h2>
+    <div class="add-row">
+      <select id="scheme">
+        <option value="file:///">file:///</option>
+        <option value="file://">file:// (UNC)</option>
+      </select>
+      <input type="text" id="custom-path" placeholder="e.g. D:\sensitive\data  or  SERVER\share\folder">
+      <button id="add-btn">Add</button>
+    </div>
+
+    <h2>Target matrix</h2>
+    <ul class="matrix" id="matrix"></ul>
+
+    <div class="log">
+      <div class="log-head">
+        <h2>Click log</h2>
+        <div class="btn-group">
+          <button id="export">Export CSV</button>
+          <button id="clear">Clear log</button>
+        </div>
+      </div>
+      <table id="log-table">
+        <thead><tr><th style="width:210px">Timestamp (ISO)</th><th style="width:130px">Target</th><th>Href</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="empty" id="empty">No clicks recorded yet.</div>
+    </div>
+
+    <footer>
+      Open this file directly in the kiosk browser (<code>file:///path/to/kiosk-local-harness.html</code>)
+      or serve it from a local HTTP server on the assessment laptop
+      (<code>python -m http.server 8000</code>). Do not deploy to a public host.
+    </footer>
+  </div>
+
+  <script>
+    (function () {
+      // ── Default targets ──
+      var defaults = [
+        { target: 'mapped-drive',  href: 'file:///Y:/cache',                       label: 'Mapped drive path',    desc: 'arbitrary path on a mapped network drive' },
+        { target: 'local-root',    href: 'file:///C:/',                            label: 'Local disk root',      desc: 'top of the local filesystem' },
+        { target: 'system32-dir',  href: 'file:///C:/Windows/System32/',           label: 'System32 directory',   desc: 'listing of a sensitive system folder' },
+        { target: 'unc-share',     href: 'file://SERVER/share/',                   label: 'UNC network share',    desc: 'replace SERVER/share with a real one' },
+        { target: 'cmd-binary',    href: 'file:///C:/Windows/System32/cmd.exe',    label: 'Command interpreter',  desc: 'whether a binary is offered/launched' }
+      ];
+
+      var targets = defaults.map(function (d) { return { target: d.target, href: d.href, label: d.label, desc: d.desc, custom: false }; });
+      var rows = [];
+      var matrix = document.getElementById('matrix');
+      var tbody = document.querySelector('#log-table tbody');
+      var empty = document.getElementById('empty');
+      var customCount = 0;
+
+      // ── Render matrix ──
+      function renderMatrix() {
+        matrix.innerHTML = '';
+        targets.forEach(function (t, i) {
+          var li = document.createElement('li');
+          var inner = '<div class="row">';
+          inner += '<a data-idx="' + i + '" href="' + escHtml(t.href) + '">';
+          inner += '<span>' + escHtml(t.label);
+          if (t.custom) inner += '<span class="custom-tag">custom</span>';
+          inner += ' <span class="desc">' + escHtml(t.desc) + '</span></span>';
+          inner += '<code>' + escHtml(t.href) + '</code>';
+          inner += '</a>';
+          if (t.custom) inner += '<button class="remove-btn" data-rm="' + i + '" title="Remove">×</button>';
+          inner += '</div>';
+          li.innerHTML = inner;
+          matrix.appendChild(li);
+        });
+      }
+
+      // ── Render log ──
+      function renderLog() {
+        tbody.innerHTML = '';
+        rows.forEach(function (r) {
+          var tr = document.createElement('tr');
+          tr.innerHTML = '<td>' + escHtml(r.ts) + '</td><td>' + escHtml(r.target) + '</td><td>' + escHtml(r.href) + '</td>';
+          tbody.appendChild(tr);
+        });
+        empty.style.display = rows.length ? 'none' : 'block';
+      }
+
+      function escHtml(s) {
+        return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+      }
+
+      // ── Click logging ──
+      matrix.addEventListener('click', function (e) {
+        var a = e.target.closest('a[data-idx]');
+        if (!a) return;
+        var idx = parseInt(a.getAttribute('data-idx'), 10);
+        var t = targets[idx];
+        if (t) {
+          rows.push({ ts: new Date().toISOString(), target: t.target, href: t.href });
+          renderLog();
+        }
+      });
+
+      // ── Remove custom target ──
+      matrix.addEventListener('click', function (e) {
+        var btn = e.target.closest('.remove-btn[data-rm]');
+        if (!btn) return;
+        e.preventDefault();
+        var idx = parseInt(btn.getAttribute('data-rm'), 10);
+        targets.splice(idx, 1);
+        renderMatrix();
+      });
+
+      // ── Add custom target ──
+      document.getElementById('add-btn').addEventListener('click', addCustom);
+      document.getElementById('custom-path').addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') addCustom();
+      });
+
+      function addCustom() {
+        var input = document.getElementById('custom-path');
+        var scheme = document.getElementById('scheme').value;
+        var raw = input.value.trim();
+        if (!raw) return;
+
+        // Normalise backslashes to forward slashes for file:// URLs
+        var path = raw.replace(/\\/g, '/');
+        var href = scheme + path;
+        customCount++;
+
+        targets.push({
+          target: 'custom-' + customCount,
+          href: href,
+          label: raw,
+          desc: 'custom target added during session',
+          custom: true
+        });
+
+        input.value = '';
+        renderMatrix();
+      }
+
+      // ── Export CSV ──
+      document.getElementById('export').addEventListener('click', function () {
+        if (!rows.length) return;
+        var csv = 'timestamp,target,href\n' + rows.map(function (r) {
+          return '"' + r.ts + '","' + r.target + '","' + r.href.replace(/"/g, '""') + '"';
+        }).join('\n');
+        var blob = new Blob([csv], { type: 'text/csv' });
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url; a.download = 'containment-check-log.csv'; a.click();
+        URL.revokeObjectURL(url);
+      });
+
+      // ── Clear log ──
+      document.getElementById('clear').addEventListener('click', function () {
+        rows = []; renderLog();
+      });
+
+      // ── Init ──
+      renderMatrix();
+      renderLog();
+    })();
+  </script>
+</body>
+</html>
