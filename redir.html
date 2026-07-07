@@ -210,11 +210,19 @@
 
     // ── Vector 1: blob download chain ──
     document.getElementById('v1-run').addEventListener('click', function(){
+      var drives = [
+        { href:'file:///C:/', label:'file:///C:/ (local disk root)' },
+        { href:'file:///Y:/', label:'file:///Y:/ (mapped network drive)' },
+        { href:'file:///Z:/', label:'file:///Z:/ (mapped network drive)' }
+      ];
+      var links = drives.map(function(d){
+        return '<p><a style="color:#5aa9ff" href="' + d.href + '">Open ' + d.label + '</a></p>';
+      }).join('');
       var probe = '<!DOCTYPE html><meta charset="utf-8"><title>kiosk-probe</title>'
         + '<body style="font:15px system-ui;background:#0f1115;color:#e6e6e6;padding:24px">'
         + '<h2>Downloaded probe — now on a file: origin</h2>'
-        + '<p>If this page opened as <code>file:///.../kiosk-probe.html</code>, the link below is a same-scheme (file:&rarr;file:) navigation and should list the drive:</p>'
-        + '<p><a style="color:#5aa9ff" href="file:///C:/">Open file:///C:/ (local disk root)</a></p>'
+        + '<p>If this page opened as <code>file:///.../kiosk-probe.html</code>, each link below is a same-scheme (file:&rarr;file:) navigation and should list that drive:</p>'
+        + links
         + '<p>Also try the download shelf\'s <b>Show in folder</b> to reach Explorer directly.</p>';
       try {
         var blob = new Blob([probe], { type:'text/html' });
